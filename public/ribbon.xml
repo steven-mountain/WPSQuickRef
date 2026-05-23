@@ -8,6 +8,8 @@
           <button id="btnRefManager" label="引用源管理" onAction="ribbon.OnAction" getEnabled="ribbon.OnGetEnabled" getImage="ribbon.GetImage" visible="true" size="large"/>
           <button id="btnUpdateAllRefs" label="更新全部引用" onAction="ribbon.OnAction" getEnabled="ribbon.OnGetEnabled" getImage="ribbon.GetImage" visible="true" size="large"/>
           <button id="btnCheckInvalidRefs" label="检查失效引用" onAction="ribbon.OnAction" getEnabled="ribbon.OnGetEnabled" getImage="ribbon.GetImage" visible="true" size="large"/>
+          <button id="btnEnableReferencePreview" label="开启引用目标双窗预览" onAction="ribbon.OnAction" getEnabled="ribbon.OnGetEnabled" getImage="ribbon.GetImage" visible="true" size="large"/>
+          <button id="btnCloseReferencePreview" label="关闭引用目标双窗预览" onAction="ribbon.OnAction" getEnabled="ribbon.OnGetEnabled" getImage="ribbon.GetImage" visible="true" size="large"/>
         </group>
       </tab>
     </tabs>

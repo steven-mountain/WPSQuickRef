@@ -3,7 +3,7 @@
     <header class="topbar">
       <div>
         <h1>引用助手</h1>
-        <p>书签页码交叉引用管理</p>
+        <p>{{ addinDisplayName }} · v{{ appVersion }}</p>
       </div>
       <button class="ghost" @click="load">刷新</button>
     </header>
@@ -14,6 +14,8 @@
       <button @click="updateFields">更新全部引用</button>
       <button @click="checkInvalidRefs">检查失效引用</button>
     </div>
+
+    <ReferencePreviewStatus />
 
     <input v-model.trim="keyword" class="search" placeholder="搜索名称、书签或预览" />
 
@@ -104,9 +106,14 @@ import {
 } from '../services/wpsApi'
 import { refSourceStore } from '../services/refSourceStore'
 import { getRefSourcesChangeTick, REF_SOURCE_REFRESH_KEY } from '../services/refSourceEvents'
+import { ADDIN_DISPLAY_NAME, APP_VERSION } from '../config/appInfo'
+import ReferencePreviewStatus from './ReferencePreviewStatus.vue'
 
 export default {
   name: 'RefManager',
+  components: {
+    ReferencePreviewStatus
+  },
   setup() {
     const sources = ref([])
     const invalidRefs = ref([])
@@ -330,7 +337,9 @@ export default {
       refreshOne,
       updateFields,
       checkInvalidRefs,
-      gotoInvalid
+      gotoInvalid,
+      appVersion: APP_VERSION,
+      addinDisplayName: ADDIN_DISPLAY_NAME
     }
   }
 }

@@ -1,6 +1,7 @@
 import Util from './js/util.js'
 import { registerContextMenu } from '../services/contextMenu'
 import { listInvalidRefs, updateAllFields } from '../services/wpsApi'
+import { closeReferencePreviewMode, enableReferencePreviewMode } from '../services/referencePreviewService'
 
 function OnAddinLoad(ribbonUI) {
   if (typeof window.Application.ribbonUI != 'object') {
@@ -32,6 +33,12 @@ function OnAction(control) {
       break
     case 'btnCheckInvalidRefs':
       handleCheckInvalidRefs()
+      break
+    case 'btnEnableReferencePreview':
+      handleEnableReferencePreview()
+      break
+    case 'btnCloseReferencePreview':
+      handleCloseReferencePreview()
       break
     default:
       break
@@ -114,6 +121,22 @@ function handleCheckInvalidRefs() {
   try {
     const invalidRefs = listInvalidRefs()
     alert(`检查完成，发现 ${invalidRefs.length} 个失效引用。可在“引用源管理”任务窗格中查看和跳转。`)
+  } catch (error) {
+    alert(error.message || error)
+  }
+}
+
+async function handleEnableReferencePreview() {
+  try {
+    await enableReferencePreviewMode()
+  } catch (error) {
+    alert(error.message || error)
+  }
+}
+
+async function handleCloseReferencePreview() {
+  try {
+    await closeReferencePreviewMode()
   } catch (error) {
     alert(error.message || error)
   }

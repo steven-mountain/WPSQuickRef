@@ -3,7 +3,7 @@ const FIELD_TYPE_PAGE_REF = 37
 const INFO_ACTIVE_END_PAGE_NUMBER = 3
 const UNIT_CHARACTER = 1
 
-function getApplication() {
+export function getApplication() {
   return window.Application
 }
 
@@ -36,6 +36,29 @@ export function bookmarkExists(bookmarkName) {
   } catch (error) {
     return false
   }
+}
+
+export async function getReferenceFieldInfoFromSelection(selection) {
+  return getReferenceFieldInfoFromSelectionSync(selection)
+}
+
+export function getReferenceFieldInfoFromSelectionSync(selection) {
+  const app = getApplication()
+  const doc = getActiveDocument()
+  const currentSelection = selection || app.Selection
+  const selectionRange = currentSelection && currentSelection.Range
+
+  if (!selectionRange) {
+    return null
+  }
+
+  const directField = getFieldFromRange(selectionRange)
+  const field = directField || getNearestReferenceField(doc, selectionRange)
+  if (!field) {
+    return null
+  }
+
+  return getReferenceFieldInfo(field)
 }
 
 export function listAllBookmarks() {
@@ -236,11 +259,11 @@ export function listFields() {
     try {
       const field = fields.Item(index)
       const code = normalizeFieldCode(field.Code && field.Code.Text)
-      const parsed = parseRefFieldCode(code)
+      const parsed = parseBookmarkNameFromFieldCode(code) || { fieldType: '', bookmarkName: '' }
       result.push({
         index,
         code,
-        kind: parsed.kind,
+        kind: parsed.fieldType,
         bookmarkName: parsed.bookmarkName,
         field
       })
@@ -250,6 +273,18 @@ export function listFields() {
   }
 
   return result
+}
+
+export function parseBookmarkNameFromFieldCode(fieldCode) {
+  const code = normalizeFieldCode(fieldCode).replace(/^\{\s*/, '').replace(/\s*\}$/, '')
+  const match = code.match(/\b(PAGEREF|REF)\s+(?:"([^"]+)"|([^\s\\{}]+))/i)
+  if (!match) {
+    return null
+  }
+  return {
+    fieldType: match[1].toUpperCase(),
+    bookmarkName: match[2] || match[3]
+  }
 }
 
 export function gotoField(fieldIndex) {
@@ -276,19 +311,109 @@ function getAvailableBookmarkName(baseName, reservedNames) {
   return ''
 }
 
-function parseRefFieldCode(code) {
-  const match = code.match(/\b(PAGEREF|REF)\s+(?:"([^"]+)"|([^\s\\]+))/i)
-  if (!match) {
-    return { kind: '', bookmarkName: '' }
+function quoteFieldBookmarkName(bookmarkName) {
+  return /[\s]/.test(bookmarkName) ? `"${bookmarkName.replace(/"/g, '')}"` : bookmarkName
+}
+
+function getFieldFromRange(range) {
+  try {
+    const fields = range.Fields
+    const count = fields ? fields.Count || 0 : 0
+    for (let index = 1; index <= count; index += 1) {
+      const field = fields.Item(index)
+      if (field && getReferenceFieldInfo(field)) {
+        return field
+      }
+    }
+  } catch (error) {
+    // 选区可能不直接暴露字段集合，继续扫描全文字段。
+  }
+  return null
+}
+
+function getNearestReferenceField(doc, selectionRange) {
+  const fields = doc.Fields
+  const count = fields ? fields.Count || 0 : 0
+  let nearest = null
+  let nearestDistance = Number.MAX_SAFE_INTEGER
+
+  for (let index = 1; index <= count; index += 1) {
+    try {
+      const field = fields.Item(index)
+      const info = getReferenceFieldInfo(field)
+      if (!info) {
+        continue
+      }
+
+      const range = getFieldResultRange(field) || field.Code
+      if (!range) {
+        continue
+      }
+
+      if (rangesIntersect(selectionRange, range)) {
+        return field
+      }
+
+      const distance = getRangeDistance(selectionRange, range)
+      if (distance < nearestDistance) {
+        nearest = field
+        nearestDistance = distance
+      }
+    } catch (error) {
+      console.warn('扫描引用字段失败', error)
+    }
+  }
+
+  return nearestDistance <= 2 ? nearest : null
+}
+
+function getReferenceFieldInfo(field) {
+  const fieldCode = normalizeFieldCode(field && field.Code && field.Code.Text)
+  const parsed = parseBookmarkNameFromFieldCode(fieldCode)
+  if (!parsed) {
+    return null
   }
   return {
-    kind: match[1].toUpperCase(),
-    bookmarkName: match[2] || match[3]
+    fieldCode,
+    fieldResult: getFieldResultText(field),
+    bookmarkName: parsed.bookmarkName,
+    fieldType: parsed.fieldType
   }
 }
 
-function quoteFieldBookmarkName(bookmarkName) {
-  return /[\s]/.test(bookmarkName) ? `"${bookmarkName.replace(/"/g, '')}"` : bookmarkName
+function getFieldResultText(field) {
+  try {
+    return field.Result && field.Result.Text
+  } catch (error) {
+    return ''
+  }
+}
+
+function getFieldResultRange(field) {
+  try {
+    return field.Result
+  } catch (error) {
+    return null
+  }
+}
+
+function rangesIntersect(left, right) {
+  return Number(left.Start) <= Number(right.End) && Number(left.End) >= Number(right.Start)
+}
+
+function getRangeDistance(left, right) {
+  const leftStart = Number(left.Start)
+  const leftEnd = Number(left.End)
+  const rightStart = Number(right.Start)
+  const rightEnd = Number(right.End)
+
+  if (rangesIntersect(left, right)) {
+    return 0
+  }
+  if (leftEnd < rightStart) {
+    return rightStart - leftEnd
+  }
+  return leftStart - rightEnd
 }
 
 function unique(items) {
