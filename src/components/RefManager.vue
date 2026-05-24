@@ -155,7 +155,7 @@ export default {
 
     async function load() {
       try {
-        sources.value = await refSourceStore.listWithStatus()
+        sources.value = normalizeCachedSources(await refSourceStore.list())
         lastRefreshTick.value = getRefSourcesChangeTick()
       } catch (error) {
         showError(error.message || error)
@@ -184,6 +184,14 @@ export default {
       if (tick && tick !== lastRefreshTick.value) {
         load()
       }
+    }
+
+    function normalizeCachedSources(list) {
+      return list.map((item) => ({
+        ...item,
+        referenceCount: item.referenceCount ?? '-',
+        status: item.status || '未检查'
+      }))
     }
 
     function openCreateDialog() {

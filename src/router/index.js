@@ -5,8 +5,8 @@ const router = createRouter({
   routes: [
     {
       path: '/',
-      name: '引用助手',
-      component: () => import('../components/RefManager.vue')
+      name: 'RibbonHost',
+      component: () => import('../components/RibbonHost.vue')
     },
     {
       path: '/create-ref-source',
