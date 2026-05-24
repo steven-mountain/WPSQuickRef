@@ -14,6 +14,7 @@
       <button @click="updateFields">更新全部引用</button>
       <button @click="checkInvalidRefs">检查失效引用</button>
       <button class="danger-button" @click="removeUnreferencedSources">清除未引用源</button>
+      <button class="danger-button" @click="removeLostSources">清除丢失源</button>
     </div>
 
     <ReferencePreviewStatus />
@@ -127,6 +128,7 @@ export default {
     const editingName = ref('')
     const lastRefreshTick = ref(getRefSourcesChangeTick())
     let refreshTimer = null
+    let statusRefreshTimer = null
 
     const filteredSources = computed(() => {
       const word = keyword.value.toLowerCase()
@@ -150,6 +152,9 @@ export default {
       window.removeEventListener('focus', refreshIfChanged)
       if (refreshTimer) {
         window.clearInterval(refreshTimer)
+      }
+      if (statusRefreshTimer) {
+        window.clearTimeout(statusRefreshTimer)
       }
     })
 
@@ -176,6 +181,7 @@ export default {
     function handleStorageRefresh(event) {
       if (event.key === REF_SOURCE_REFRESH_KEY) {
         load()
+        scheduleStatusRefresh()
       }
     }
 
@@ -183,6 +189,24 @@ export default {
       const tick = getRefSourcesChangeTick()
       if (tick && tick !== lastRefreshTick.value) {
         load()
+        scheduleStatusRefresh()
+      }
+    }
+
+    function scheduleStatusRefresh() {
+      if (statusRefreshTimer) {
+        window.clearTimeout(statusRefreshTimer)
+      }
+      statusRefreshTimer = window.setTimeout(refreshStatusNow, 600)
+    }
+
+    async function refreshStatusNow() {
+      statusRefreshTimer = null
+      try {
+        sources.value = await refSourceStore.listWithStatus()
+        lastRefreshTick.value = getRefSourcesChangeTick()
+      } catch (error) {
+        showError(error.message || error)
       }
     }
 
@@ -232,7 +256,7 @@ export default {
       try {
         insertPageRef(source.bookmarkName)
         showInfo(`已插入“${source.displayName}”的页码引用。`)
-        await load()
+        scheduleStatusRefresh()
       } catch (error) {
         showError(error.message || error)
       }
@@ -251,9 +275,9 @@ export default {
       }
       try {
         await refSourceStore.updateDisplayName(source.bookmarkName, editingName.value)
+        source.displayName = editingName.value
         editingBookmark.value = ''
         showInfo('显示名称已更新。真实书签名保持不变。')
-        await load()
       } catch (error) {
         showError(error.message || error)
       }
@@ -269,8 +293,9 @@ export default {
       try {
         deleteBookmark(source.bookmarkName)
         await refSourceStore.remove(source.bookmarkName)
+        sources.value = sources.value.filter((item) => item.bookmarkName !== source.bookmarkName)
         showInfo('引用源已删除。')
-        await load()
+        scheduleStatusRefresh()
       } catch (error) {
         showError(error.message || error)
       }
@@ -310,7 +335,8 @@ export default {
           await refSourceStore.removeMany(removedNames)
         }
 
-        await load()
+        sources.value = latestSources.filter((source) => !removedNames.includes(source.bookmarkName))
+        scheduleStatusRefresh()
         if (failedNames.length) {
           showError(`已清除 ${removedNames.length} 个，${failedNames.length} 个删除失败。`)
           return
@@ -321,12 +347,42 @@ export default {
       }
     }
 
+    async function removeLostSources() {
+      try {
+        const latestSources = await refSourceStore.listWithStatus()
+        const lostSources = latestSources.filter((source) => source.status === '书签丢失')
+
+        if (!lostSources.length) {
+          sources.value = latestSources
+          showInfo('没有书签丢失的引用源。')
+          return
+        }
+
+        const confirmed = window.confirm(
+          `确定清除 ${lostSources.length} 个书签丢失的引用源？这只会从插件列表移除记录。`
+        )
+        if (!confirmed) {
+          sources.value = latestSources
+          return
+        }
+
+        const lostNames = lostSources.map((source) => source.bookmarkName)
+        await refSourceStore.removeMany(lostNames)
+        sources.value = latestSources.filter((source) => !lostNames.includes(source.bookmarkName))
+        showInfo(`已清除 ${lostNames.length} 个书签丢失的引用源。`)
+      } catch (error) {
+        showError(error.message || error)
+      }
+    }
+
     async function refreshOne(source) {
       try {
         const info = getBookmarkInfo(source.bookmarkName)
         await refSourceStore.add({ ...source, page: info.page, preview: info.preview })
+        source.page = info.page
+        source.preview = info.preview
         showInfo('页码和预览已刷新。')
-        await load()
+        scheduleStatusRefresh()
       } catch (error) {
         showError(error.message || error)
       }
@@ -400,6 +456,7 @@ export default {
       saveRename,
       remove,
       removeUnreferencedSources,
+      removeLostSources,
       refreshOne,
       updateFields,
       checkInvalidRefs,
