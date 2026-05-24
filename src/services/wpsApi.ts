@@ -2,6 +2,7 @@ const LEGACY_REF_PREFIX = 'WPSREF_'
 const FIELD_TYPE_PAGE_REF = 37
 const INFO_ACTIVE_END_PAGE_NUMBER = 3
 const UNIT_CHARACTER = 1
+const WD_COLLAPSE_END = 0
 
 export function getApplication() {
   return window.Application
@@ -114,7 +115,7 @@ export function getBookmarkNameForDisplayName(displayName, existingNames = []) {
     throw new Error('请输入引用源显示名称。')
   }
 
-  const names = new Set([...existingNames, ...listAllBookmarks().map((item) => item.bookmarkName)])
+  const names = new Set(existingNames)
   const candidates = unique([
     baseName,
     baseName.replace(/\s+/g, '_'),
@@ -194,18 +195,10 @@ export function insertPageRef(bookmarkName) {
   const fieldName = quoteFieldBookmarkName(bookmarkName)
 
   try {
-    const field = doc.Fields.Add(range, FIELD_TYPE_PAGE_REF, `${fieldName} \\h`, false)
-    if (field && field.Update) {
-      field.Update()
-    }
-    return field
+    return insertFormattedPageRef(doc, range, FIELD_TYPE_PAGE_REF, `${fieldName} \\h`)
   } catch (error) {
     try {
-      const field = doc.Fields.Add(range, undefined, `PAGEREF ${fieldName} \\h`, false)
-      if (field && field.Update) {
-        field.Update()
-      }
-      return field
+      return insertFormattedPageRef(doc, range, undefined, `PAGEREF ${fieldName} \\h`)
     } catch (fallbackError) {
       throw new Error(`插入 PAGEREF 字段失败：${fallbackError.message || fallbackError}`)
     }
@@ -219,6 +212,30 @@ export function updateAllFields() {
   } catch (error) {
     throw new Error(`更新全部引用失败：${error.message || error}`)
   }
+}
+
+function insertFormattedPageRef(doc, range, fieldType, fieldCode) {
+  range.Text = '第'
+  range.Collapse(WD_COLLAPSE_END)
+
+  const field = doc.Fields.Add(range, fieldType, fieldCode, false)
+  if (field && field.Update) {
+    field.Update()
+  }
+
+  insertTextAfterField(field, '页')
+  return field
+}
+
+function insertTextAfterField(field, text) {
+  const app = getApplication()
+  if (!field || !field.Select || !app || !app.Selection) {
+    return
+  }
+
+  field.Select()
+  app.Selection.Collapse(WD_COLLAPSE_END)
+  app.Selection.TypeText(text)
 }
 
 export function gotoBookmark(bookmarkName) {
@@ -244,8 +261,18 @@ export function countPageRefs(bookmarkName) {
 }
 
 export function listInvalidRefs() {
+  const existsCache = new Map()
+
   return listFields().filter((field) => {
-    return /^(PAGEREF|REF)$/i.test(field.kind) && field.bookmarkName && !bookmarkExists(field.bookmarkName)
+    if (!/^(PAGEREF|REF)$/i.test(field.kind) || !field.bookmarkName) {
+      return false
+    }
+
+    if (!existsCache.has(field.bookmarkName)) {
+      existsCache.set(field.bookmarkName, bookmarkExists(field.bookmarkName))
+    }
+
+    return !existsCache.get(field.bookmarkName)
   })
 }
 

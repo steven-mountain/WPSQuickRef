@@ -6,7 +6,12 @@
 	"type": "module",
 	"scripts": {
 		"dev": "vite --port 3889",
+		"debug": "wpsjs debug",
 		"build": "vite build",
+		"publish": "wpsjs publish",
+		"package:windows": "npm run build && node scripts/package-windows.js",
+		"package:macos": "npm run build && node scripts/package-macos.js",
+		"package:all": "npm run build && node scripts/package-windows.js && node scripts/package-macos.js",
 		"preview": "vite preview",
 		"lint": "eslint . --ext .vue,.js,.jsx,.cjs,.mjs --fix --ignore-path .gitignore",
 		"format": "prettier --write src/"

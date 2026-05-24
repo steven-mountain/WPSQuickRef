@@ -50,13 +50,21 @@ function GetImage(control) {
   const eleId = control.Id
   switch (eleId) {
     case 'btnCreateRefSource':
-      return 'images/1.svg'
+      return 'images/create-ref-source.svg'
     case 'btnInsertPageRef':
-      return 'images/2.svg'
+      return 'images/insert-page-ref.svg'
     case 'btnRefManager':
-      return 'images/3.svg'
+      return 'images/ref-manager.svg'
+    case 'btnUpdateAllRefs':
+      return 'images/update-refs.svg'
+    case 'btnCheckInvalidRefs':
+      return 'images/check-invalid-refs.svg'
+    case 'btnEnableReferencePreview':
+      return 'images/preview-on.svg'
+    case 'btnCloseReferencePreview':
+      return 'images/preview-off.svg'
     default:
-      return 'images/newFromTemp.svg'
+      return 'images/ref-manager.svg'
   }
 }
 

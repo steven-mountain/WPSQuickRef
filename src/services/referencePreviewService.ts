@@ -7,11 +7,10 @@ import {
 
 export interface ReferencePreviewState {
   enabled: boolean
-  bindMode: 'auto-horizontal-split' | 'off'
+  bindMode: 'new-window' | 'off'
   autoSplitCreated: boolean
   mainWindow?: any
-  mainPane?: any
-  previewPane?: any
+  previewWindow?: any
   lastPreviewBookmarkName?: string
   lastError?: string
 }
@@ -19,15 +18,15 @@ export interface ReferencePreviewState {
 export const REFERENCE_PREVIEW_STATE_EVENT = 'quickref-reference-preview-state'
 
 const DOUBLE_CLICK_EVENT_NAME = 'WindowBeforeDoubleClick'
-const SPLIT_PERCENT = 50
+const WD_GO_TO_BOOKMARK = -1
+const DO_NOT_SAVE_CHANGES = 0
 
 const state = {
   enabled: false,
   bindMode: 'off',
   autoSplitCreated: false,
   mainWindow: null,
-  mainPane: null,
-  previewPane: null,
+  previewWindow: null,
   mainPaneBound: false,
   previewPaneBound: false,
   doubleClickEnabled: false,
@@ -50,26 +49,35 @@ export async function enableReferencePreviewMode() {
     throw new Error('当前没有可用的文档窗口。')
   }
 
-  if (state.enabled && state.previewPaneBound) {
+  if (state.enabled && state.previewWindow) {
     return getReferencePreviewState()
   }
 
   resetPreviewBinding()
 
   try {
-    createHorizontalSplit(activeWindow)
-    bindSplitPanes(activeWindow, 'auto-horizontal-split', true, getDefaultHorizontalPanes(activeWindow))
+    const previewWindow = createPreviewWindow(activeWindow)
+    state.enabled = true
+    state.bindMode = 'new-window'
+    state.autoSplitCreated = false
+    state.mainWindow = activeWindow
+    state.previewWindow = previewWindow
+    state.mainPaneBound = true
+    state.previewPaneBound = true
+    state.lastError = ''
+
+    tryActivateWindow(activeWindow)
     bindDoubleClickEvent()
     persistAndNotify()
 
     if (!state.doubleClickEnabled) {
-      notifyUser('已创建上下预览窗格，但当前 WPS API 不支持稳定正文双击监听，双击预览未启用。')
+      notifyUser('已创建预览窗口，但当前 WPS API 不支持稳定正文双击监听，双击预览未启用。')
     } else {
-      notifyUser('引用目标双窗预览已开启。')
+      notifyUser('引用目标新窗口预览已开启。可将新建标签拖出并放到右侧。')
     }
   } catch (error) {
     resetPreviewBinding()
-    state.lastError = `创建上下预览窗格失败：${error.message || error}`
+    state.lastError = `创建预览窗口失败：${error.message || error}`
     persistAndNotify()
     notifyUser(state.lastError)
   }
@@ -81,13 +89,9 @@ export async function closeReferencePreviewMode() {
   unbindDoubleClickEvent()
 
   const mainWindow = state.mainWindow
-  const shouldCloseAutoSplit = state.autoSplitCreated
+  const previewWindow = state.previewWindow
 
-  if (shouldCloseAutoSplit) {
-    closeAutoSplit()
-  }
-
-  tryActivatePane(state.mainPane)
+  tryClosePreviewWindow(previewWindow)
   tryActivateWindow(mainWindow)
 
   resetPreviewBinding()
@@ -105,59 +109,17 @@ export async function previewBookmarkInRightTarget(bookmarkName) {
   previewBookmarkInRightTargetSync(bookmarkName)
 }
 
-function createHorizontalSplit(activeWindow) {
-  if (!activeWindow || !activeWindow.Panes) {
-    throw new Error('当前窗口不支持拆分窗格。')
+function createPreviewWindow(activeWindow) {
+  if (!activeWindow || typeof activeWindow.NewWindow !== 'function') {
+    throw new Error('当前 WPS 窗口不支持“新建窗口”。')
   }
 
-  if (getPaneCount(activeWindow) >= 2) {
-    closeExistingSplit(activeWindow)
+  const previewWindow = activeWindow.NewWindow()
+  if (!previewWindow) {
+    throw new Error('WPS 未返回可用的预览窗口。')
   }
 
-  try {
-    if (typeof activeWindow.Panes.Add === 'function') {
-      activeWindow.Panes.Add(SPLIT_PERCENT)
-    } else {
-      activeWindow.Split = true
-    }
-  } catch (error) {
-    throw new Error(error.message || error)
-  }
-
-  if (getPaneCount(activeWindow) < 2) {
-    throw new Error('无法创建第二个预览窗格。')
-  }
-}
-
-function closeExistingSplit(activeWindow) {
-  try {
-    activeWindow.Split = false
-  } catch (error) {
-    // 如果 WPS 不允许关闭现有拆分，继续尝试复用当前拆分。
-  }
-}
-
-function bindSplitPanes(activeWindow, bindMode, autoSplitCreated, panes) {
-  if (getPaneCount(activeWindow) < 2) {
-    throw new Error('当前窗口尚未拆分。')
-  }
-
-  state.enabled = true
-  state.bindMode = bindMode
-  state.autoSplitCreated = autoSplitCreated
-  state.mainWindow = activeWindow
-  state.mainPane = panes.mainPane
-  state.previewPane = panes.previewPane
-  state.mainPaneBound = true
-  state.previewPaneBound = true
-  state.lastError = ''
-}
-
-function getDefaultHorizontalPanes(activeWindow) {
-  return {
-    mainPane: activeWindow.Panes.Item(1),
-    previewPane: activeWindow.Panes.Item(2)
-  }
+  return previewWindow
 }
 
 function bindDoubleClickEvent() {
@@ -274,11 +236,11 @@ function ensurePreviewTargetSync() {
     throw new Error('引用目标双窗预览未开启。')
   }
 
-  if (!state.mainPaneBound || !state.previewPaneBound || !state.mainPane || !state.previewPane) {
-    throw new Error('当前拆分窗格不可用，请重新开启引用目标双窗预览。')
+  if (!state.previewWindow) {
+    throw new Error('预览窗口引用丢失，请重新开启引用目标双窗预览。')
   }
 
-  return state.previewPane
+  return state.previewWindow
 }
 
 function previewBookmarkInRightTargetSync(bookmarkName) {
@@ -286,59 +248,68 @@ function previewBookmarkInRightTargetSync(bookmarkName) {
     throw new Error(`引用书签不存在：${bookmarkName}`)
   }
 
-  const doc = getActiveDocument()
-  const bookmarkRange = doc.Bookmarks.Item(bookmarkName).Range
-  const mainPane = state.mainPane
-  const target = ensurePreviewTargetSync()
-
-  target.Activate()
-  bookmarkRange.Select()
-  tryActivatePane(mainPane)
-}
-
-function closeAutoSplit() {
-  const previewPane = state.previewPane
+  const previewWindow = ensurePreviewTargetSync()
   const mainWindow = state.mainWindow
 
+  activatePreviewWindow(previewWindow)
+  goToBookmarkInPreviewWindow(previewWindow, bookmarkName)
+  tryActivateWindow(mainWindow)
+}
+
+function activatePreviewWindow(previewWindow) {
   try {
-    if (previewPane && typeof previewPane.Close === 'function') {
-      previewPane.Close()
+    previewWindow.Activate()
+  } catch (error) {
+    throw new Error(`激活预览窗口失败：${error.message || error}`)
+  }
+}
+
+function goToBookmarkInPreviewWindow(previewWindow, bookmarkName) {
+  try {
+    if (previewWindow.Selection && typeof previewWindow.Selection.GoTo === 'function') {
+      previewWindow.Selection.GoTo(WD_GO_TO_BOOKMARK, undefined, undefined, bookmarkName)
       return
     }
   } catch (error) {
-    state.lastError = `关闭预览窗格失败：${error.message || error}`
+    // 某些 WPS 版本不支持 Window.Selection.GoTo，继续尝试书签 Range.Select。
   }
 
+  selectBookmarkRangeInPreviewWindow(previewWindow, bookmarkName)
+}
+
+function selectBookmarkRangeInPreviewWindow(previewWindow, bookmarkName) {
   try {
-    if (mainWindow) {
-      mainWindow.Split = false
-    }
+    const doc = getPreviewDocument(previewWindow)
+    doc.Bookmarks.Item(bookmarkName).Select()
   } catch (error) {
-    state.lastError = `恢复原窗口失败：${error.message || error}`
+    throw new Error(`预览窗口跳转失败：${error.message || error}`)
   }
 }
 
-function getPaneCount(windowObject) {
+function getPreviewDocument(previewWindow) {
   try {
-    return windowObject && windowObject.Panes ? windowObject.Panes.Count || 0 : 0
-  } catch (error) {
-    return 0
-  }
-}
-
-function tryActivatePane(pane) {
-  try {
-    if (pane && typeof pane.Activate === 'function') {
-      pane.Activate()
+    if (previewWindow && previewWindow.Document) {
+      return previewWindow.Document
     }
   } catch (error) {
-    state.lastError = `恢复主审阅窗格焦点失败：${error.message || error}`
+    // 拖出标签后的窗口对象可能不支持稳定读取 Document，使用激活后的 ActiveDocument。
+  }
+  return getActiveDocument()
+}
+
+function tryClosePreviewWindow(previewWindow) {
+  try {
+    if (previewWindow && typeof previewWindow.Close === 'function') {
+      previewWindow.Close(DO_NOT_SAVE_CHANGES)
+    }
+  } catch (error) {
+    state.lastError = `预览窗口可能已被关闭，已清理插件状态：${error.message || error}`
   }
 }
 
 function tryActivateWindow(windowObject) {
   try {
-    if (windowObject && typeof windowObject.Activate === 'function') {
+    if (windowObject) {
       windowObject.Activate()
     }
   } catch (error) {
@@ -356,8 +327,7 @@ function resetPreviewBinding() {
   state.bindMode = 'off'
   state.autoSplitCreated = false
   state.mainWindow = null
-  state.mainPane = null
-  state.previewPane = null
+  state.previewWindow = null
   state.mainPaneBound = false
   state.previewPaneBound = false
   state.doubleClickEnabled = false

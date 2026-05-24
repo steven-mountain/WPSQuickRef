@@ -5,7 +5,7 @@
         <h1>引用助手</h1>
         <p>{{ addinDisplayName }} · v{{ appVersion }}</p>
       </div>
-      <button class="ghost" @click="load">刷新</button>
+      <button class="ghost" @click="recoverAndLoad">刷新</button>
     </header>
 
     <div class="toolbar">
@@ -13,6 +13,7 @@
       <button @click="openInsertDialog">插入页码引用</button>
       <button @click="updateFields">更新全部引用</button>
       <button @click="checkInvalidRefs">检查失效引用</button>
+      <button class="danger-button" @click="removeUnreferencedSources">清除未引用源</button>
     </div>
 
     <ReferencePreviewStatus />
@@ -155,8 +156,18 @@ export default {
     async function load() {
       try {
         sources.value = await refSourceStore.listWithStatus()
-        invalidRefs.value = listInvalidRefs()
         lastRefreshTick.value = getRefSourcesChangeTick()
+      } catch (error) {
+        showError(error.message || error)
+      }
+    }
+
+    async function recoverAndLoad() {
+      try {
+        const result = await refSourceStore.recoverFromDocumentBookmarks()
+        sources.value = await refSourceStore.listWithStatus()
+        lastRefreshTick.value = getRefSourcesChangeTick()
+        showInfo(`刷新完成，恢复 ${result.recoveredCount} 个引用源。`)
       } catch (error) {
         showError(error.message || error)
       }
@@ -257,6 +268,51 @@ export default {
       }
     }
 
+    async function removeUnreferencedSources() {
+      try {
+        const latestSources = await refSourceStore.listWithStatus()
+        const removableSources = latestSources.filter((source) => source.status === '未被引用')
+
+        if (!removableSources.length) {
+          sources.value = latestSources
+          showInfo('没有未被引用的引用源。')
+          return
+        }
+
+        const confirmed = window.confirm(
+          `确定清除 ${removableSources.length} 个未被引用的引用源？这会同时删除对应书签。`
+        )
+        if (!confirmed) {
+          sources.value = latestSources
+          return
+        }
+
+        const removedNames = []
+        const failedNames = []
+        removableSources.forEach((source) => {
+          try {
+            deleteBookmark(source.bookmarkName)
+            removedNames.push(source.bookmarkName)
+          } catch (error) {
+            failedNames.push(source.bookmarkName)
+          }
+        })
+
+        if (removedNames.length) {
+          await refSourceStore.removeMany(removedNames)
+        }
+
+        await load()
+        if (failedNames.length) {
+          showError(`已清除 ${removedNames.length} 个，${failedNames.length} 个删除失败。`)
+          return
+        }
+        showInfo(`已清除 ${removedNames.length} 个未被引用的引用源。`)
+      } catch (error) {
+        showError(error.message || error)
+      }
+    }
+
     async function refreshOne(source) {
       try {
         const info = getBookmarkInfo(source.bookmarkName)
@@ -324,6 +380,7 @@ export default {
       editingBookmark,
       editingName,
       load,
+      recoverAndLoad,
       openCreateDialog,
       openInsertDialog,
       isExpanded,
@@ -334,6 +391,7 @@ export default {
       startRename,
       saveRename,
       remove,
+      removeUnreferencedSources,
       refreshOne,
       updateFields,
       checkInvalidRefs,
